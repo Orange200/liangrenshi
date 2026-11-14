@@ -62,13 +62,13 @@ fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
   top: 8px;
   left: 8px;
   padding: 10px 15px;
-  translate: 0 -180%;
+  transform: translateY(-180%);
   border: 1px solid var(--rose);
   border-radius: 10px;
   background: var(--surface);
   color: var(--rose-press);
 }
-.skip-link:focus { translate: 0 0; }
+.skip-link:focus { transform: translateY(0); }
 #main-content:focus { outline: none; }
 #main-content { flex: 1; }
 

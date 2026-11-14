@@ -25,17 +25,21 @@
 
   async function request(path, { method = 'GET', body, headers = {} } = {}) {
     let response;
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    const timeout = controller ? setTimeout(() => controller.abort(), 65_000) : null;
     try {
       response = await fetch(`/api/${path}`, {
         method,
         credentials: 'same-origin',
         cache: 'no-store',
-        signal: AbortSignal.timeout(45_000),
+        signal: controller?.signal,
         headers: { Accept: 'application/json', ...headers, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
         body: body === undefined ? undefined : JSON.stringify(body)
       });
     } catch {
       throw new Error('暂时无法连接小厨房，请检查网络后重试。');
+    } finally {
+      clearTimeout(timeout);
     }
     if (response.status === 304) return { unchanged: true };
     const data = await response.json().catch(() => null);
@@ -200,12 +204,20 @@
     }
   }
 
+  function newId() {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+
   function writeCart(items) {
     const { username } = requireRole('customer');
     if (changing) throw new Error('请求正在处理中，请稍等。');
     try {
       if (items.length) {
-        sessionStorage.setItem(draftPrefix + username, JSON.stringify({ id: crypto.randomUUID(), items }));
+        sessionStorage.setItem(draftPrefix + username, JSON.stringify({ id: newId(), items }));
       } else {
         sessionStorage.removeItem(draftPrefix + username);
       }
@@ -245,7 +257,7 @@
     } else {
       if (items.length >= 50) throw new Error('一笔订单最多包含 50 项菜品。');
       const preview = { name: dish.name, price: dish.price, image: dish.image?.startsWith('data:') ? '' : dish.image };
-      items.push({ id: crypto.randomUUID(), dishId, quantity: servings, note: trimmedNote, dish: preview });
+      items.push({ id: newId(), dishId, quantity: servings, note: trimmedNote, dish: preview });
     }
     writeCart(items);
   }

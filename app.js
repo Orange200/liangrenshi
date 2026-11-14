@@ -708,7 +708,16 @@
       if (Kitchen.online) {
         renderHeader(null, 'login');
         main.innerHTML = `<section class="page-content shell" aria-live="polite">${pageHeading('正在连接小厨房', '请稍候。')}</section>`;
-        await Kitchen.refresh();
+        try {
+          await Kitchen.refresh();
+        } catch (error) {
+          // The login form can make a fresh request after a failed session check.
+          ready = true;
+          currentRoute = '';
+          navigate();
+          showFormError(main.querySelector('#login-form'), error.message);
+          return;
+        }
       }
       ready = true;
       currentRoute = '';
