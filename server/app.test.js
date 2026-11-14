@@ -30,6 +30,10 @@ test('online mode protects data and enforces session roles', async context => {
   assert.equal(homepage.statusCode, 200);
   assert.match(homepage.body, /src="online\.js"/);
   assert.doesNotMatch(homepage.body, /src="data\.js"/);
+  assert.match(homepage.body, /rel="icon"[^>]+href="assets\/favicon\.svg"/);
+  const favicon = await app.inject('/assets/favicon.svg');
+  assert.equal(favicon.statusCode, 200);
+  assert.match(favicon.headers['content-type'], /^image\/svg\+xml/);
   for (const path of ['/data.js', '/.env', '/server/config.js']) {
     assert.equal((await app.inject(path)).statusCode, 404);
   }
