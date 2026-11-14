@@ -29,7 +29,7 @@ python -m http.server 8765 --bind 127.0.0.1
 
 ## 服务器版与 Render
 
-服务器版沿用「拾知」线上服务的 Aiven MySQL。点餐站是独立的 Web Service，只使用 `kitchen_` 开头的表。线上只开放两个预置账号，使用 Render 环境变量设置密码。首次启动会初始化八道预置菜；直接打开文件所产生的浏览器数据留在本机。
+服务器版沿用「拾知」线上服务的 Aiven MySQL。点餐站是独立的 Web Service，只使用 `kitchen_` 开头的表。线上账号为点菜人 `ryj` 和厨师 `chef`，密码在 Render 环境变量中设置。`ryj` 可以查看原 `customer` 账号的订单。首次启动会初始化八道预置菜；直接打开文件所产生的浏览器数据留在本机。
 
 1. 将本项目推送到私有 GitHub 仓库，授权 Render 读取该仓库。
 2. 在 `dreamStudy` 所在的 Render 工作区新建 Blueprint，选择本项目仓库及根目录 `render.yaml`。六项数据库变量均引用控制台里名为 `dreamStudy` 的现有服务。

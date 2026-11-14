@@ -86,6 +86,11 @@ function orderFromRow(row) {
 
 const dishFields = 'id, name, category, description, image, price, active';
 
+function orderOwners(username) {
+  // The renamed account keeps access to orders placed under its previous name.
+  return [username, username === 'ryj' ? 'customer' : username];
+}
+
 async function getDish(db, id) {
   const [[row]] = await db.execute(`SELECT ${dishFields} FROM kitchen_dishes WHERE id = ?`, [id]);
   if (!row) throw problem(404, '找不到这道菜。');
@@ -120,7 +125,7 @@ export function createMySqlStore(pool) {
       const isChef = user.role === 'chef';
       const [dishes, orders] = await Promise.all([
         pool.execute(`SELECT ${dishFields} FROM kitchen_dishes ${isChef ? '' : 'WHERE active = TRUE'} ORDER BY created_at, id`),
-        pool.execute(`SELECT * FROM kitchen_orders ${isChef ? '' : 'WHERE customer = ?'} ORDER BY created_at DESC, id DESC`, isChef ? [] : [user.username]),
+        pool.execute(`SELECT * FROM kitchen_orders ${isChef ? '' : 'WHERE customer IN (?, ?)'} ORDER BY created_at DESC, id DESC`, isChef ? [] : orderOwners(user.username)),
       ]);
       return { user, dishes: dishes[0].map(dishFromRow), orders: orders[0].map(orderFromRow) };
     },
@@ -148,7 +153,7 @@ export function createMySqlStore(pool) {
     },
     async createOrder(input, customer) {
       const owned = order => {
-        if (order.customer !== customer) throw problem(409, '订单编号已被使用。');
+        if (!orderOwners(customer).includes(order.customer)) throw problem(409, '订单编号已被使用。');
         return order;
       };
       try {

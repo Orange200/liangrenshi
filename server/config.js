@@ -10,7 +10,8 @@ function required(env, name) {
 
 function account(env, role) {
   const prefix = `KITCHEN_${role.toUpperCase()}`;
-  const username = (env[`${prefix}_USERNAME`] || role).trim();
+  const defaultUsername = role === 'customer' ? 'ryj' : role;
+  const username = (env[`${prefix}_USERNAME`] || defaultUsername).trim();
   const password = required(env, `${prefix}_PASSWORD`);
   if (!/^[A-Za-z0-9_.-]{1,48}$/.test(username)) throw new Error(`${prefix}_USERNAME 格式有误。`);
   if (password.length < 12 || password.length > 128 || weakPasswords.has(password.toLowerCase()) || password.toLowerCase().includes(username.toLowerCase()) || new Set(password).size < 6) {

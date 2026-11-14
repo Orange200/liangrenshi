@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createApp } from './app.js';
+import { readConfig } from './config.js';
+import { createMySqlStore } from './mysql-store.js';
 
 const origin = 'https://kitchen.example';
 const config = {
@@ -60,4 +62,33 @@ test('online mode protects data and enforces session roles', async context => {
     method: 'POST', url: '/api/logout', headers: { cookie: chefCookie, origin }, payload: {},
   })).statusCode, 200);
   assert.equal((await updateStatus(chefCookie)).statusCode, 401);
+});
+
+test('the renamed diner can sign in with the same password and read legacy orders', async context => {
+  const env = {
+    KITCHEN_CUSTOMER_PASSWORD: config.accounts[0].password,
+    KITCHEN_CHEF_PASSWORD: config.accounts[1].password,
+    KITCHEN_SESSION_SECRET: config.secret,
+    DB_HOST: '127.0.0.1', DB_USER: 'test', DB_PASSWORD: 'test', DB_NAME: 'test',
+  };
+  const renamed = readConfig(env);
+  const app = await createApp(renamed, { startSession: async () => {} }, { staticFiles: false });
+  context.after(() => app.close());
+  const login = username => app.inject({
+    method: 'POST', url: '/api/login', payload: { username, password: env.KITCHEN_CUSTOMER_PASSWORD },
+  });
+  assert.equal((await login('customer')).statusCode, 401);
+  assert.deepEqual((await login('ryj')).json().user, { username: 'ryj', role: 'customer' });
+
+  const store = createMySqlStore({
+    async execute(sql, values) {
+      if (sql.includes('kitchen_dishes')) return [[]];
+      assert.match(sql, /WHERE customer IN \(\?, \?\)/);
+      assert.deepEqual(values, ['ryj', 'customer']);
+      return [[{ id: 'legacy', customer: 'customer', total: '16.00', status: '已完成', items: [], note: '',
+        created_at: new Date(0), updated_at: new Date(0) }]];
+    },
+  });
+  const state = await store.state({ username: 'ryj', role: 'customer' });
+  assert.equal(state.orders[0].id, 'legacy');
 });
