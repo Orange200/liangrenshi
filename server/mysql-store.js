@@ -12,6 +12,15 @@ const seedDishes = [
   ['玉米炖排骨', '家常菜', '排骨和甜玉米小火慢炖，汤鲜清甜。', 32],
 ];
 
+const quickDishes = [
+  ['番茄炒蛋', '鸡蛋炒嫩后盛出，番茄炒出汁，再和鸡蛋一起翻匀。', 12],
+  ['蒜蓉西兰花', '西兰花焯水后沥干，和蒜末一起快炒。', 12],
+  ['香葱蒸蛋', '鸡蛋加温水打匀，隔水蒸嫩，出锅撒葱花。', 10],
+  ['葱油拌面', '煮熟的面条拌入小火熬香的葱油和少许生抽。', 12],
+  ['青椒炒豆干', '青椒和豆干切丝，用蒜末和生抽快速炒香。', 14],
+  ['紫菜蛋花汤', '水烧开后下紫菜，淋入蛋液，最后撒葱花。', 8],
+];
+
 async function transaction(pool, action) {
   const connection = await pool.getConnection();
   try {
@@ -77,6 +86,16 @@ export async function initializeTables(pool) {
         await db.execute('INSERT IGNORE INTO kitchen_categories (name) VALUES (?)', [name]);
       }
       await db.query('INSERT IGNORE INTO kitchen_categories (name) SELECT DISTINCT category FROM kitchen_dishes');
+    }
+    await db.query("SELECT name FROM kitchen_meta WHERE name = 'category-management' FOR UPDATE");
+    const [quickMenu] = await db.execute('INSERT IGNORE INTO kitchen_meta (name) VALUES (?)', ['quick-home-menu']);
+    if (quickMenu.affectedRows) {
+      await db.execute('INSERT IGNORE INTO kitchen_categories (name) VALUES (?)', ['家常菜']);
+      for (const [index, [name, description, price]] of quickDishes.entries()) {
+        await db.execute(`INSERT INTO kitchen_dishes (id, name, category, description, image, price, active)
+          SELECT ?, ?, ?, ?, '', ?, TRUE WHERE NOT EXISTS (SELECT 1 FROM kitchen_dishes WHERE name = ?)`,
+        [`quick-dish-${index + 1}`, name, '家常菜', description, price, name]);
+      }
     }
   });
 }
