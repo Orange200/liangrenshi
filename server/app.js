@@ -15,6 +15,7 @@ async function webRoutes(app) {
     ['online.js', 'text/javascript; charset=utf-8'],
     ['styles.css', 'text/css; charset=utf-8'],
     ['assets/favicon.svg', 'image/svg+xml'],
+    ...Array.from({ length: 6 }, (_, index) => [`assets/quick-dish-${index + 1}.jpg`, 'image/jpeg']),
     ...['hero', ...Array.from({ length: 8 }, (_, index) => `dish-${index + 1}`)].map(name => [`assets/${name}.webp`, 'image/webp']),
   ].map(async ([name, mime]) => {
     const file = new URL(name, root);

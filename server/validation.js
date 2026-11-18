@@ -22,7 +22,7 @@ function cleanText(value, max, field) {
 
 function validImage(value) {
   const image = cleanText(value, 920_000, '图片');
-  if (!image || /^assets\/dish-[1-8]\.webp$/.test(image)) return image;
+  if (!image || /^assets\/(?:dish-[1-8]\.webp|quick-dish-[1-6]\.jpg)$/.test(image)) return image;
   if (/^data:image\/(?:jpeg|png|gif|webp);base64,[\w+/=]+$/.test(image)) return image;
   try {
     const url = new URL(image);

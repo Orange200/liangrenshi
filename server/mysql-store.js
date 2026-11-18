@@ -97,6 +97,13 @@ export async function initializeTables(pool) {
         [`quick-dish-${index + 1}`, name, '家常菜', description, price, name]);
       }
     }
+    const [photos] = await db.execute('INSERT IGNORE INTO kitchen_meta (name) VALUES (?)', ['quick-home-menu-photos']);
+    if (photos.affectedRows) {
+      for (const index of quickDishes.keys()) {
+        const id = `quick-dish-${index + 1}`;
+        await db.execute("UPDATE kitchen_dishes SET image = ? WHERE id = ? AND image = ''", [`assets/${id}.jpg`, id]);
+      }
+    }
   });
 }
 
