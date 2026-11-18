@@ -442,7 +442,7 @@
   function categoryEditor() {
     openDialog('分类管理', `<label class="field">现有分类<select name="previous"><option value="">新增分类</option>${Kitchen.categories.map(name => `<option value="${escape(name)}">${escape(name)}</option>`).join('')}</select></label>
       <label class="field">分类名称<input name="name" maxlength="24" placeholder="填写新名称" required></label>`,
-    `<button class="button secondary" data-delete-category type="submit" formnovalidate>删除所选分类</button><button class="button primary" type="submit">保存分类</button>`, 'categories');
+    `<button class="button primary" type="submit">保存分类</button><button class="button secondary" data-delete-category type="submit" formnovalidate>删除所选分类</button>`, 'categories');
   }
 
   function dishEditor(id) {
