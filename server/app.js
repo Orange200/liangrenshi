@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import Fastify from 'fastify';
-import { activeValue, bodyObject, dishInput, entityId, orderInput, orderStatus, problem } from './validation.js';
+import { activeValue, bodyObject, categoryName, dishInput, entityId, orderInput, orderStatus, problem } from './validation.js';
 
 const sessionLifetime = 7 * 24 * 60 * 60;
 const loginWindow = 15 * 60 * 1000;
@@ -180,6 +180,15 @@ export async function createApp(config, store, { staticFiles = true, logger = fa
   app.post('/api/dishes', protect('chef', async (request, reply) => {
     const dish = await store.createDish(dishInput(request.body));
     return reply.code(201).send(dish);
+  }));
+  app.post('/api/categories', protect('chef', async request => {
+    const { previous, name } = bodyObject(request.body);
+    await store.saveCategory(previous === undefined ? null : categoryName(previous), categoryName(name));
+    return { ok: true };
+  }));
+  app.delete('/api/categories', protect('chef', async request => {
+    await store.deleteCategory(categoryName(bodyObject(request.body).name));
+    return { ok: true };
   }));
   app.put('/api/dishes/:id', protect('chef', async request => store.updateDish(entityId(request.params.id), dishInput(request.body))));
   app.patch('/api/dishes/:id', protect('chef', async request => store.setDishActive(entityId(request.params.id), activeValue(bodyObject(request.body).active))));

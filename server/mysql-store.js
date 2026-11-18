@@ -60,13 +60,23 @@ export async function initializeTables(pool) {
     INDEX kitchen_sessions_expires (expires_at)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 
+  await pool.query(`CREATE TABLE IF NOT EXISTS kitchen_categories (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(24) NOT NULL UNIQUE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
   await transaction(pool, async db => {
     // Keeping a seed marker prevents deleted dishes from being restored on a subsequent deploy.
     const [seed] = await db.execute('INSERT IGNORE INTO kitchen_meta (name) VALUES (?)', ['initial-menu']);
-    if (!seed.affectedRows) return;
-    for (const [index, [name, category, description, price]] of seedDishes.entries()) {
+    for (const [index, [name, category, description, price]] of (seed.affectedRows ? seedDishes : []).entries()) {
       await db.execute('INSERT IGNORE INTO kitchen_dishes (id, name, category, description, image, price, active) VALUES (?, ?, ?, ?, ?, ?, TRUE)',
         [`dish-${index + 1}`, name, category, description, `assets/dish-${index + 1}.webp`, price]);
+    }
+    const [migration] = await db.execute('INSERT IGNORE INTO kitchen_meta (name) VALUES (?)', ['category-management']);
+    if (migration.affectedRows) {
+      for (const name of new Set(seedDishes.map(dish => dish[1]))) {
+        await db.execute('INSERT IGNORE INTO kitchen_categories (name) VALUES (?)', [name]);
+      }
+      await db.query('INSERT IGNORE INTO kitchen_categories (name) SELECT DISTINCT category FROM kitchen_dishes');
     }
   });
 }
@@ -103,6 +113,19 @@ async function getOrder(db, id) {
 }
 
 export function createMySqlStore(pool) {
+  function editMenu(action) {
+    return transaction(pool, async db => {
+      await db.query("SELECT name FROM kitchen_meta WHERE name = 'category-management' FOR UPDATE");
+      return action(db);
+    });
+  }
+
+  async function requireCategory(db, name) {
+    const [[category]] = await db.execute('SELECT id, name FROM kitchen_categories WHERE name = ?', [name]);
+    if (!category) throw problem(409, '该分类已不存在，请重新选择。');
+    return category;
+  }
+
   return {
     async ping() {
       await pool.query('SELECT 1');
@@ -127,19 +150,50 @@ export function createMySqlStore(pool) {
         pool.execute(`SELECT ${dishFields} FROM kitchen_dishes ${isChef ? '' : 'WHERE active = TRUE'} ORDER BY created_at, id`),
         pool.execute(`SELECT * FROM kitchen_orders ${isChef ? '' : 'WHERE customer IN (?, ?)'} ORDER BY created_at DESC, id DESC`, isChef ? [] : orderOwners(user.username)),
       ]);
-      return { user, dishes: dishes[0].map(dishFromRow), orders: orders[0].map(orderFromRow) };
+      const [categories] = await pool.query('SELECT name FROM kitchen_categories ORDER BY id');
+      return { user, dishes: dishes[0].map(dishFromRow), orders: orders[0].map(orderFromRow), categories: categories.map(row => row.name) };
+    },
+    async saveCategory(previous, name) {
+      try {
+        await editMenu(async db => {
+          if (previous === null) {
+            await db.execute('INSERT INTO kitchen_categories (name) VALUES (?)', [name]);
+            return;
+          }
+          const category = await requireCategory(db, previous);
+          await db.execute('UPDATE kitchen_categories SET name = ? WHERE id = ?', [name, category.id]);
+          await db.execute('UPDATE kitchen_dishes SET category = ? WHERE category = ?', [name, category.name]);
+        });
+      } catch (error) {
+        if (error.code === 'ER_DUP_ENTRY') throw problem(409, '这个分类已存在。');
+        throw error;
+      }
+    },
+    async deleteCategory(name) {
+      await editMenu(async db => {
+        const category = await requireCategory(db, name);
+        const [[dish]] = await db.execute('SELECT id FROM kitchen_dishes WHERE category = ? LIMIT 1', [category.name]);
+        if (dish) throw problem(409, '请先把该分类下的菜品移到其他分类。');
+        await db.execute('DELETE FROM kitchen_categories WHERE id = ?', [category.id]);
+      });
     },
     async createDish(dish) {
       const id = `dish-${randomUUID()}`;
-      await pool.execute('INSERT INTO kitchen_dishes (id, name, category, description, image, price, active) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [id, dish.name, dish.category, dish.description, dish.image, dish.price, dish.active]);
-      return { id, ...dish };
+      return editMenu(async db => {
+        const { name: category } = await requireCategory(db, dish.category);
+        await db.execute('INSERT INTO kitchen_dishes (id, name, category, description, image, price, active) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          [id, dish.name, category, dish.description, dish.image, dish.price, dish.active]);
+        return { id, ...dish, category };
+      });
     },
     async updateDish(id, dish) {
-      const [result] = await pool.execute('UPDATE kitchen_dishes SET name = ?, category = ?, description = ?, image = ?, price = ?, active = ? WHERE id = ?',
-        [dish.name, dish.category, dish.description, dish.image, dish.price, dish.active, id]);
-      if (!result.affectedRows) throw problem(404, '找不到这道菜。');
-      return { id, ...dish };
+      return editMenu(async db => {
+        const { name: category } = await requireCategory(db, dish.category);
+        const [result] = await db.execute('UPDATE kitchen_dishes SET name = ?, category = ?, description = ?, image = ?, price = ?, active = ? WHERE id = ?',
+          [dish.name, category, dish.description, dish.image, dish.price, dish.active, id]);
+        if (!result.affectedRows) throw problem(404, '找不到这道菜。');
+        return { id, ...dish, category };
+      });
     },
     async setDishActive(id, active) {
       return transaction(pool, async db => {

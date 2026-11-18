@@ -292,7 +292,15 @@
   setInterval(poll, 3000);
 
   window.Kitchen = Object.freeze({
-    online: true, categories, statuses, login, logout, refresh,
+    online: true, get categories() { return state.categories ?? categories; }, statuses, login, logout, refresh,
+    async saveCategory(previous, name) {
+      await mutate('categories', 'POST', { previous, name }, () => {});
+      await refresh();
+    },
+    async deleteCategory(name) {
+      await mutate('categories', 'DELETE', { name }, () => {});
+      await refresh();
+    },
     connectionProblem: () => connectionProblem,
     user: () => state.user,
     dishes: () => state.dishes,

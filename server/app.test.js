@@ -85,6 +85,7 @@ test('the renamed diner can sign in with the same password and read legacy order
   assert.deepEqual((await login('ryj')).json().user, { username: 'ryj', role: 'customer' });
 
   const store = createMySqlStore({
+    async query() { return [[]]; },
     async execute(sql, values) {
       if (sql.includes('kitchen_dishes')) return [[]];
       assert.match(sql, /WHERE customer IN \(\?, \?\)/);

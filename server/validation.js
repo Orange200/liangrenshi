@@ -1,4 +1,8 @@
-export const categories = ['江西风味', '河南面食', '家常菜'];
+export function categoryName(value) {
+  const name = cleanText(value, 24, '分类名称');
+  if (!name) throw problem(400, '请输入分类名称。');
+  return name;
+}
 export const statuses = ['待制作', '制作中', '已完成', '取消'];
 
 export function problem(statusCode, message) {
@@ -38,11 +42,10 @@ export function dishInput(payload) {
   const { name, description, category, image, price, active } = bodyObject(payload);
   const cleanName = cleanText(name, 40, '菜品名称');
   if (!cleanName) throw problem(400, '请输入菜品名称。');
-  if (!categories.includes(category)) throw problem(400, '请选择一个菜品分类。');
   if ((typeof price !== 'number' && typeof price !== 'string') || String(price).trim() === '' || !Number.isFinite(Number(price)) || Number(price) < 0 || Number(price) > 100000) {
     throw problem(400, '请输入 0 到 100000 元之间的参考价格。');
   }
-  return { name: cleanName, description: cleanText(description, 200, '菜品描述'), category, image: validImage(image), price: Math.round(Number(price) * 100) / 100, active: activeValue(active) };
+  return { name: cleanName, description: cleanText(description, 200, '菜品描述'), category: categoryName(category), image: validImage(image), price: Math.round(Number(price) * 100) / 100, active: activeValue(active) };
 }
 
 export function entityId(id) {

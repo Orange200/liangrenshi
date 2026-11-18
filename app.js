@@ -159,7 +159,8 @@
 
   function renderMenu() {
     const dishes = Kitchen.dishes();
-    lastMenuSignature = JSON.stringify(dishes);
+    if (!Kitchen.categories.includes(category)) category = '';
+    lastMenuSignature = JSON.stringify([dishes, Kitchen.categories]);
     const visible = dishes.filter(dish => !category || dish.category === category);
     main.innerHTML = `<section class="hero shell" aria-label="今日菜单横幅">
       <div class="hero-copy"><span class="eyebrow">${icon('heart')} 两个人的餐桌</span>
@@ -171,7 +172,7 @@
       <section class="menu-area" aria-labelledby="menu-title">
         <div class="section-heading"><div><h2 id="menu-title">今日菜单</h2><p>选好份数，还可以给厨师留一句话。</p></div></div>
         <div class="filters" aria-label="菜品分类">
-          ${['', ...Kitchen.categories].map(item => `<button class="filter ${item === category ? 'is-active' : ''}" data-action="filter" data-category="${escape(item)}" aria-pressed="${item === category}">${item || '全部菜品'}</button>`).join('')}
+          ${['', ...Kitchen.categories].map(item => `<button class="filter ${item === category ? 'is-active' : ''}" data-action="filter" data-category="${escape(item)}" aria-pressed="${item === category}">${escape(item || '全部菜品')}</button>`).join('')}
         </div>
         ${visible.length ? `<div class="dish-grid">${visible.map(dish => `<article class="dish-card">
           <div class="dish-image">${dishPhoto(dish)}<span class="dish-category">${escape(dish.category)}</span></div>
@@ -272,7 +273,7 @@
     lastManageSignature = JSON.stringify(dishes);
     main.innerHTML = `<section class="page-content shell">
       ${pageHeading('菜品管理', '编辑菜单，决定今天有哪些菜可以点。', `<button class="button primary" data-action="new-dish">${icon('plus')} 新增菜品</button>`)}
-      <div class="admin-toolbar"><strong>全部菜品</strong><span>${dishes.length} 道 · ${dishes.filter(dish => dish.active).length} 道已上架</span></div>
+      <div class="admin-toolbar"><strong>全部菜品</strong>${Kitchen.saveCategory ? '<button class="button secondary" data-action="categories">分类管理</button>' : ''}<span>${dishes.length} 道 · ${dishes.filter(dish => dish.active).length} 道已上架</span></div>
       ${dishes.length ? `<div class="manage-list">${dishes.map(dish => `<article class="manage-row">
         <div class="manage-thumb">${dishPhoto(dish)}</div>
         <div class="manage-detail"><h2>${escape(dish.name)}</h2><p>${escape(dish.category)} · ${money(dish.price)} / 份</p></div>
@@ -438,12 +439,19 @@
     return JSON.stringify(lines.map(line => [line.id, line.quantity, line.note, line.dish.name, line.dish.price, line.available]));
   }
 
+  function categoryEditor() {
+    openDialog('分类管理', `<label class="field">现有分类<select name="previous"><option value="">新增分类</option>${Kitchen.categories.map(name => `<option value="${escape(name)}">${escape(name)}</option>`).join('')}</select></label>
+      <label class="field">分类名称<input name="name" maxlength="24" placeholder="填写新名称" required></label>`,
+    `<button class="button secondary" data-delete-category type="submit" formnovalidate>删除所选分类</button><button class="button primary" type="submit">保存分类</button>`, 'categories');
+  }
+
   function dishEditor(id) {
+    if (!Kitchen.categories.length) return showToast('请先到分类管理新增一个分类。');
     const dish = id ? Kitchen.dishes().find(item => item.id === id) : null;
     if (id && !dish) return showToast('找不到这道菜。');
     openDialog(dish ? '编辑菜品' : '新增菜品', `<input name="id" type="hidden" value="${escape(id || '')}">
       <div class="form-grid"><label class="field">菜名<input name="name" maxlength="40" value="${escape(dish?.name)}" required></label>
-        <label class="field">分类<select name="category">${Kitchen.categories.map(item => `<option ${dish?.category === item ? 'selected' : ''}>${item}</option>`).join('')}</select></label></div>
+        <label class="field">分类<select name="category">${Kitchen.categories.map(item => `<option ${dish?.category === item ? 'selected' : ''}>${escape(item)}</option>`).join('')}</select></label></div>
       <label class="field">简短描述<textarea name="description" maxlength="200" rows="2">${escape(dish?.description)}</textarea></label>
       <div class="form-grid"><label class="field">参考价格（元）<input name="price" type="number" min="0" max="100000" step="0.01" value="${dish?.price ?? ''}" required></label>
         <label class="check-field"><input name="active" type="checkbox" ${dish?.active !== false ? 'checked' : ''}> 上架，允许点单</label></div>
@@ -516,7 +524,7 @@
       return;
     }
     if (currentRoute === 'menu') {
-      if (JSON.stringify(Kitchen.dishes()) !== lastMenuSignature) renderMenu();
+      if (JSON.stringify([Kitchen.dishes(), Kitchen.categories]) !== lastMenuSignature) renderMenu();
       else renderCart();
     } else if (currentRoute === 'wheel') {
       const dishes = Kitchen.dishes();
@@ -597,6 +605,7 @@
         showToast('已加入购物车');
         break;
       case 'new-dish': dishEditor(); break;
+      case 'categories': categoryEditor(); break;
       case 'edit-dish': dishEditor(id); break;
       case 'delete-dish': deleteDishDialog(id); break;
       case 'toggle-dish': {
@@ -613,11 +622,22 @@
     }
   }
 
-  async function submitDialog(form) {
+  async function submitDialog(form, submitter) {
     const values = new FormData(form);
     const id = values.get('id');
     const note = values.get('note');
     switch (form.dataset.dialogForm) {
+      case 'categories': {
+        const previous = values.get('previous') || undefined;
+        if (submitter?.hasAttribute('data-delete-category')) {
+          if (!previous) throw new Error('请先选择要删除的分类。');
+          await Kitchen.deleteCategory(previous);
+        } else {
+          await Kitchen.saveCategory(previous, values.get('name'));
+        }
+        categoryEditor();
+        return;
+      }
       case 'add-dish':
         Kitchen.addToCart(id, Number(values.get('quantity')), note);
         showToast('已加入购物车');
@@ -672,7 +692,7 @@
     const form = event.target;
     if (!form.matches('#login-form, [data-dialog-form]')) return;
     event.preventDefault();
-    const button = form.querySelector('button[type="submit"]');
+    const button = event.submitter || form.querySelector('button[type="submit"]');
     if (button.disabled) return;
     button.disabled = true;
     showFormError(form, '');
@@ -683,7 +703,7 @@
         loginRole = user.role;
         navigate();
       } else {
-        await submitDialog(form);
+        await submitDialog(form, event.submitter);
       }
     } catch (error) {
       showFormError(form, error.message);
