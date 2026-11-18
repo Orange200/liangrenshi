@@ -439,10 +439,19 @@
     return JSON.stringify(lines.map(line => [line.id, line.quantity, line.note, line.dish.name, line.dish.price, line.available]));
   }
 
-  function categoryEditor() {
+  function categoryEditor(message = '') {
     openDialog('分类管理', `<label class="field">现有分类<select name="previous"><option value="">新增分类</option>${Kitchen.categories.map(name => `<option value="${escape(name)}">${escape(name)}</option>`).join('')}</select></label>
-      <label class="field">分类名称<input name="name" maxlength="24" placeholder="填写新名称" required></label>`,
+      <label class="field">分类名称<input name="name" maxlength="24" placeholder="填写新名称" required></label>
+      <p class="notice" role="status" ${message ? '' : 'hidden'}>${escape(message)}</p>`,
     `<button class="button primary" type="submit">保存分类</button><button class="button secondary" data-delete-category type="submit" formnovalidate>删除所选分类</button>`, 'categories');
+  }
+
+  function confirmCategory(previous, name, deleting) {
+    const title = deleting ? '确认删除分类' : '确认修改分类';
+    const message = deleting ? `确定删除「${escape(previous)}」吗？` : `确定将「${escape(previous)}」改名为「${escape(name)}」吗？该分类下的菜品会同步更新。`;
+    openDialog(title, `<p>${message}</p><input type="hidden" name="previous" value="${escape(previous)}"><input type="hidden" name="name" value="${escape(name)}">`,
+      `<button class="button secondary" type="button" data-action="categories" autofocus>取消</button><button class="button ${deleting ? 'danger' : 'primary'}" type="submit">${deleting ? '确认删除' : '确认修改'}</button>`, deleting ? 'category-delete' : 'category-rename');
+    dialog.querySelector('[autofocus]').focus();
   }
 
   function dishEditor(id) {
@@ -629,13 +638,32 @@
     switch (form.dataset.dialogForm) {
       case 'categories': {
         const previous = values.get('previous') || undefined;
+        const name = values.get('name').trim();
         if (submitter?.hasAttribute('data-delete-category')) {
           if (!previous) throw new Error('请先选择要删除的分类。');
-          await Kitchen.deleteCategory(previous);
+          confirmCategory(previous, '', true);
         } else {
-          await Kitchen.saveCategory(previous, values.get('name'));
+          if (!name) throw new Error('请输入分类名称。');
+          if (previous) {
+            if (previous === name) throw new Error('请输入不同的分类名称。');
+            confirmCategory(previous, name, false);
+          } else {
+            await Kitchen.saveCategory(undefined, name);
+            categoryEditor(`已新增分类「${name}」`);
+          }
         }
-        categoryEditor();
+        return;
+      }
+      case 'category-delete': {
+        const previous = values.get('previous');
+        await Kitchen.deleteCategory(previous);
+        categoryEditor(`已删除分类「${previous}」`);
+        return;
+      }
+      case 'category-rename': {
+        const name = values.get('name');
+        await Kitchen.saveCategory(values.get('previous'), name);
+        categoryEditor(`已将分类改名为「${name}」`);
         return;
       }
       case 'add-dish':
