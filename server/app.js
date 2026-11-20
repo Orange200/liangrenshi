@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import Fastify from 'fastify';
+import { createOrderMailer } from './email.js';
 import { activeValue, bodyObject, categoryName, dishInput, entityId, orderInput, orderStatus, problem } from './validation.js';
 
 const sessionLifetime = 7 * 24 * 60 * 60;
@@ -125,8 +126,9 @@ function authRoutes(app, config, store) {
   };
 }
 
-export async function createApp(config, store, { staticFiles = true, logger = false } = {}) {
+export async function createApp(config, store, { staticFiles = true, logger = false, sendEmailRequest } = {}) {
   const app = Fastify({ logger, bodyLimit: 1024 * 1024, trustProxy: config.render ? (_address, hop) => hop === 0 : false });
+  const notifyOrder = createOrderMailer(config.email, config.origin, sendEmailRequest);
   app.addHook('onRequest', async (request, reply) => {
     reply.headers({
       'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
@@ -198,10 +200,16 @@ export async function createApp(config, store, { staticFiles = true, logger = fa
     return { ok: true };
   }));
   app.post('/api/orders', protect('customer', async (request, reply, user) => {
-    const order = await store.createOrder(orderInput(request.body), user.username);
+    const { order, created } = await store.createOrder(orderInput(request.body), user.username);
+    if (created) await notifyOrder('new-order', order, request.log);
     return reply.code(201).send(order);
   }));
-  app.patch('/api/orders/:id', protect('chef', async request => store.setOrderStatus(entityId(request.params.id), orderStatus(bodyObject(request.body).status))));
+  app.patch('/api/orders/:id', protect('chef', async request => {
+    const status = orderStatus(bodyObject(request.body).status);
+    const { order, changed } = await store.setOrderStatus(entityId(request.params.id), status);
+    if (changed && status === '已完成') await notifyOrder('completed', order, request.log);
+    return order;
+  }));
   if (staticFiles) await webRoutes(app);
   return app;
 }

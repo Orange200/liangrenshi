@@ -65,6 +65,19 @@ function databaseConfig(env) {
   return { ...connection, timezone: 'Z', charset: 'utf8mb4', connectionLimit: 4, queueLimit: 20, connectTimeout: 10000 };
 }
 
+function emailConfig(env, origin) {
+  const apiKey = env.BREVO_API_KEY?.trim();
+  if (!apiKey) return null;
+  const addresses = ['KITCHEN_EMAIL_FROM', 'KITCHEN_CHEF_EMAIL', 'KITCHEN_CUSTOMER_EMAIL'];
+  const [from, chef, customer] = addresses.map(name => {
+    const value = required(env, name).trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) throw new Error(`${name} 邮箱格式有误。`);
+    return value;
+  });
+  if (!origin) throw new Error('邮件通知需要配置 KITCHEN_PUBLIC_URL。');
+  return { apiKey, from, chef, customer };
+}
+
 export function readConfig(env) {
   const accounts = [account(env, 'customer'), account(env, 'chef')];
   if (accounts[0].username.toLowerCase() === accounts[1].username.toLowerCase() || accounts[0].password === accounts[1].password) {
@@ -79,5 +92,5 @@ export function readConfig(env) {
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT 配置有误。');
   const host = env.KITCHEN_HOST || (env.RENDER ? '0.0.0.0' : '127.0.0.1');
   if (!isIP(host)) throw new Error('KITCHEN_HOST 应为监听 IP 地址。');
-  return { accounts, database: databaseConfig(env), host, origin, port, secret, render: Boolean(env.RENDER), secureCookie: origin?.startsWith('https://') ?? false };
+  return { accounts, database: databaseConfig(env), email: emailConfig(env, origin), host, origin, port, secret, render: Boolean(env.RENDER), secureCookie: origin?.startsWith('https://') ?? false };
 }

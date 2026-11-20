@@ -22,7 +22,7 @@ test('online mode protects data and enforces session roles', async context => {
     startSession: async (hash, username) => sessions.set(hash.toString('hex'), username),
     endSession: async hash => sessions.delete(hash.toString('hex')),
     state: async user => ({ user, dishes: [], orders: [] }),
-    setOrderStatus: async (id, status) => ({ id, status }),
+    setOrderStatus: async (id, status) => ({ order: { id, status }, changed: true }),
   });
   context.after(() => app.close());
 
@@ -66,6 +66,58 @@ test('online mode protects data and enforces session roles', async context => {
     method: 'POST', url: '/api/logout', headers: { cookie: chefCookie, origin }, payload: {},
   })).statusCode, 200);
   assert.equal((await updateStatus(chefCookie)).statusCode, 401);
+});
+
+test('order emails target the correct role and ignore repeated saves', async context => {
+  const id = 'e31ee863-ccab-4f8b-a4f0-dd0ab2613cba';
+  const messages = [];
+  const sessions = new Map();
+  const email = { apiKey: 'test-only', from: 'sender@example.com', chef: 'chef@example.com', customer: 'diner@example.com' };
+  let order;
+  const app = await createApp({ ...config, email }, {
+    session: async hash => sessions.get(hash.toString('hex')),
+    startSession: async (hash, username) => sessions.set(hash.toString('hex'), username),
+    createOrder: async input => {
+      if (order) return { order, created: false };
+      order = { ...input, items: [{ name: '番茄炒蛋', quantity: 1 }], status: '待制作' };
+      return { order, created: true };
+    },
+    setOrderStatus: async (_id, status) => {
+      const changed = order.status !== status;
+      order.status = status;
+      return { order, changed };
+    },
+  }, {
+    staticFiles: false,
+    sendEmailRequest: async (url, request) => {
+      assert.equal(url, 'https://api.brevo.com/v3/smtp/email');
+      assert.equal(request.headers['api-key'], email.apiKey);
+      messages.push(JSON.parse(request.body));
+      return { ok: messages.length === 1, status: messages.length === 1 ? 201 : 503 };
+    },
+  });
+  context.after(() => app.close());
+  const [diner, chef] = await Promise.all(config.accounts.map(async ({ username, password }) => {
+    const login = await app.inject({ method: 'POST', url: '/api/login', payload: { username, password } });
+    return login.headers['set-cookie'].split(';')[0];
+  }));
+  const create = () => app.inject({
+    method: 'POST', url: '/api/orders', headers: { cookie: diner },
+    payload: { id, items: [{ dishId: 'dish-1', quantity: 1 }], note: '少辣' },
+  });
+  const update = status => app.inject({
+    method: 'PATCH', url: `/api/orders/${id}`, headers: { cookie: chef }, payload: { status },
+  });
+  assert.equal((await create()).statusCode, 201);
+  assert.equal((await create()).statusCode, 201);
+  assert.equal((await update('制作中')).statusCode, 200);
+  assert.equal((await update('已完成')).json().status, '已完成');
+  assert.equal((await update('已完成')).statusCode, 200);
+  assert.deepEqual(messages.map(message => [message.to[0].email, message.subject]), [
+    [email.chef, '两人食｜有新订单'],
+    [email.customer, '两人食｜可以开饭了'],
+  ]);
+  assert.match(messages[0].textContent, /番茄炒蛋 × 1[\s\S]*少辣/);
 });
 
 test('the renamed diner can sign in with the same password and read legacy orders', async context => {

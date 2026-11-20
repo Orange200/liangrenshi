@@ -239,7 +239,7 @@ export function createMySqlStore(pool) {
       try {
         return await transaction(pool, async db => {
           const previous = await getOrder(db, input.id);
-          if (previous) return owned(previous);
+          if (previous) return { order: owned(previous), created: false };
 
           const ids = [...new Set(input.items.map(item => item.dishId))];
           const [rows] = await db.execute(`SELECT ${dishFields} FROM kitchen_dishes WHERE id IN (${ids.map(() => '?').join(', ')}) FOR SHARE`, ids);
@@ -252,21 +252,25 @@ export function createMySqlStore(pool) {
           const total = items.reduce((sum, item) => sum + Math.round(item.price * 100) * item.quantity, 0) / 100;
           await db.execute(`INSERT INTO kitchen_orders (id, customer, status, items, note, total, created_at, updated_at)
             VALUES (?, ?, '待制作', ?, ?, ?, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))`, [input.id, customer, JSON.stringify(items), input.note, total]);
-          return getOrder(db, input.id);
+          return { order: await getOrder(db, input.id), created: true };
         });
       } catch (error) {
         // An overlapping request with the same id may be committed by the time the insert fails.
         if (error.code !== 'ER_DUP_ENTRY') throw error;
         const previous = await getOrder(pool, input.id);
         if (!previous) throw error;
-        return owned(previous);
+        return { order: owned(previous), created: false };
       }
     },
     async setOrderStatus(id, status) {
       return transaction(pool, async db => {
-        const [result] = await db.execute('UPDATE kitchen_orders SET status = ?, updated_at = UTC_TIMESTAMP(3) WHERE id = ?', [status, id]);
-        if (!result.affectedRows) throw problem(404, '找不到这笔订单。');
-        return getOrder(db, id);
+        const [result] = await db.execute(
+          'UPDATE kitchen_orders SET status = ?, updated_at = UTC_TIMESTAMP(3) WHERE id = ? AND status <> ?',
+          [status, id, status]
+        );
+        const order = await getOrder(db, id);
+        if (!order) throw problem(404, '找不到这笔订单。');
+        return { order, changed: result.affectedRows > 0 };
       });
     },
   };
